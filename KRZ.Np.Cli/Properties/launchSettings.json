@@ -1,0 +1,19 @@
+{
+  "profiles": {
+    "KRZ.Np.Cli": {
+      "commandName": "Project"
+    },
+    "Steg": {
+      "commandName": "Project",
+      "commandLineArgs": "-e -s \"G:\\downloads\\kripto_images_bmp\\1.bmp\" -i \"{\\\"TypeDiscriminator\\\":\\\"FreeQuestion\\\",\\\"Text\\\":\\\"Koliko je 94 + 269 ?\\\",\\\"Answer\\\":\\\"363\\\"}\""
+    },
+    "Questions": {
+      "commandName": "Project",
+      "commandLineArgs": "-q -s \"C:\\Users\\Blue-Glass\\source\\repos\\KRZ.Np\\KRZ.Np.Cli\\bin\\Debug\\net5.0\\questions.json\""
+    },
+    "DeSteg": {
+      "commandName": "Project",
+      "commandLineArgs": "-r -s \"G:\\downloads\\kripto_images_bmp\\1_modified.bmp\" "
+    }
+  }
+}

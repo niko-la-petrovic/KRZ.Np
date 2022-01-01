@@ -1,0 +1,162 @@
+[
+    {
+        "TypeDiscriminator": "FreeQuestion",
+        "Text": "Koliko je 94 + 269 ?",
+        "Answer": "363"
+    },
+    {
+        "TypeDiscriminator": "FreeQuestion",
+        "Text": "Koliko je 43 + 258 ?",
+        "Answer": "301"
+    },
+    {
+        "TypeDiscriminator": "FreeQuestion",
+        "Text": "Koliko je 43 + 373 ?",
+        "Answer": "416"
+    },
+    {
+        "TypeDiscriminator": "FreeQuestion",
+        "Text": "Koliko je 52 + 246 ?",
+        "Answer": "298"
+    },
+    {
+        "TypeDiscriminator": "FreeQuestion",
+        "Text": "Koliko je 7 + 252 ?",
+        "Answer": "259"
+    },
+    {
+        "TypeDiscriminator": "FreeQuestion",
+        "Text": "Koliko je 42 + 225 ?",
+        "Answer": "267"
+    },
+    {
+        "TypeDiscriminator": "FreeQuestion",
+        "Text": "Koliko je 1 + 291 ?",
+        "Answer": "292"
+    },
+    {
+        "TypeDiscriminator": "FreeQuestion",
+        "Text": "Koliko je 21 + 328 ?",
+        "Answer": "349"
+    },
+    {
+        "TypeDiscriminator": "FreeQuestion",
+        "Text": "Koliko je 78 + 206 ?",
+        "Answer": "284"
+    },
+    {
+        "TypeDiscriminator": "FreeQuestion",
+        "Text": "Koliko je 75 + 240 ?",
+        "Answer": "315"
+    },
+    {
+        "TypeDiscriminator": "MultipleChoiceQuestion",
+        "Text": "Koliko je 23 + 342 ?",
+        "Answer": "365",
+        "Choices": [
+            "365",
+            "722",
+            "385",
+            "884"
+        ]
+    },
+    {
+        "TypeDiscriminator": "MultipleChoiceQuestion",
+        "Text": "Koliko je 31 + 244 ?",
+        "Answer": "275",
+        "Choices": [
+            "275",
+            "36",
+            "569",
+            "399"
+        ]
+    },
+    {
+        "TypeDiscriminator": "MultipleChoiceQuestion",
+        "Text": "Koliko je 0 + 302 ?",
+        "Answer": "302",
+        "Choices": [
+            "302",
+            "356",
+            "548",
+            "292"
+        ]
+    },
+    {
+        "TypeDiscriminator": "MultipleChoiceQuestion",
+        "Text": "Koliko je 48 + 344 ?",
+        "Answer": "392",
+        "Choices": [
+            "392",
+            "504",
+            "208",
+            "189"
+        ]
+    },
+    {
+        "TypeDiscriminator": "MultipleChoiceQuestion",
+        "Text": "Koliko je 93 + 332 ?",
+        "Answer": "425",
+        "Choices": [
+            "425",
+            "569",
+            "825",
+            "232"
+        ]
+    },
+    {
+        "TypeDiscriminator": "MultipleChoiceQuestion",
+        "Text": "Koliko je 83 + 248 ?",
+        "Answer": "331",
+        "Choices": [
+            "331",
+            "600",
+            "111",
+            "299"
+        ]
+    },
+    {
+        "TypeDiscriminator": "MultipleChoiceQuestion",
+        "Text": "Koliko je 94 + 207 ?",
+        "Answer": "301",
+        "Choices": [
+            "301",
+            "892",
+            "579",
+            "654"
+        ]
+    },
+    {
+        "TypeDiscriminator": "MultipleChoiceQuestion",
+        "Text": "Koliko je 13 + 340 ?",
+        "Answer": "353",
+        "Choices": [
+            "353",
+            "53",
+            "900",
+            "67"
+        ]
+    },
+    {
+        "TypeDiscriminator": "MultipleChoiceQuestion",
+        "Text": "Koliko je 28 + 338 ?",
+        "Answer": "366",
+        "Choices": [
+            "366",
+            "865",
+            "426",
+            "93"
+        ]
+    },
+    {
+        "TypeDiscriminator": "MultipleChoiceQuestion",
+        "Text": "Koliko je 69 + 247 ?",
+        "Answer": "316",
+        "Choices": [
+            "316",
+            "639",
+            "87",
+            "559"
+        ]
+    }
+]
