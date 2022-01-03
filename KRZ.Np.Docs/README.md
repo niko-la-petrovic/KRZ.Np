@@ -71,7 +71,7 @@ CA1
 ca1
 ```
 
-## User
+## Register User
 ```
 y
 Nikola Petrovic
@@ -86,4 +86,13 @@ np@ca.com
 Nikola Petrovic
 
 nikola-petrovic
+```
+
+## Login User
+
+```
+n
+Nikola Petrovic
+123
+C:\Users\Blue-Glass\source\repos\KRZ.Np\KRZ.Np.Cli\bin\Debug\net5.0\nikola-petrovic.pfx
 ```

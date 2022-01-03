@@ -106,20 +106,21 @@ namespace KRZ.Np.Cli
 
             var db = GetDb();
 
-            // TODO offer registration
-            // TODO else login
             bool finished = false;
             using var sha = SHA256.Create();
             do
             {
+                Console.WriteLine();
                 Console.Write("Would you like to register (y/n)?");
                 string register = Console.ReadLine();
                 bool shouldRegister = register == "y";
                 if (!shouldRegister)
                     Console.WriteLine("Login");
+                else
+                    Console.WriteLine($"Registration");
 
                 var creds = GetCredentials();
-                if(creds.Password.Length < 3)
+                if (creds.Password.Length < 3)
                 {
                     Console.WriteLine("Password is too short.");
                     continue;
@@ -136,13 +137,13 @@ namespace KRZ.Np.Cli
 
                     using var _ = GenCert(parentCert: caCert, isUser: true, ski: creds.Username);
 
-
                     var saltBytes = Salt.GetSalt();
                     var saltBase64 = Convert.ToBase64String(saltBytes);
                     var hashedPassword = sha.ComputeHash(Encoding.Default.GetBytes(creds.Password));
-                    using var hashStream = new MemoryStream(hashedPassword);
+                    using var hashStream = new MemoryStream();
+                    hashStream.Write(hashedPassword);
                     hashStream.Write(saltBytes);
-                    var passwordHash = sha.ComputeHash(hashStream);
+                    var passwordHash = sha.ComputeHash(hashStream.ToArray());
                     var passwordHashBase64 = Convert.ToBase64String(passwordHash);
 
                     user = new User
@@ -160,10 +161,46 @@ namespace KRZ.Np.Cli
                     continue;
                 }
 
+                if (user is null)
+                {
+                    Console.WriteLine("Invalid credentials.");
+                    continue;
+                }
                 bool validCreds = CheckPassword(sha, creds, user);
                 if (!validCreds)
                 {
                     Console.WriteLine("Invalid credentials.");
+                    continue;
+                }
+
+                Console.Write("Specify your digital certificate:");
+                string userCertPath = Console.ReadLine();
+                X509Certificate2 userCert;
+                try
+                {
+                    userCert = new X509Certificate2(userCertPath);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.Message);
+                    continue;
+                }
+
+                // todo check CRL
+
+
+                if (user.PlayCount == 3)
+                {
+                    // todo revoke cert
+                    continue;
+                }
+
+                var subjectKey = userCert.Extensions.Cast<X509Extension>().FirstOrDefault(ext => ext?.Oid.Value == X509AuthorityKeyIdentifierExtension.SubjectKeyIdentifierOid.Value) as X509SubjectKeyIdentifierExtension;
+                // TODO make into method, replace other uses
+                var userSki = Convert.ToHexString(Encoding.Default.GetBytes(creds.Username));
+                if (subjectKey.SubjectKeyIdentifier != userSki)
+                {
+                    Console.WriteLine("You do not own this certificate.");
                     continue;
                 }
 
@@ -183,10 +220,11 @@ namespace KRZ.Np.Cli
         private static bool CheckPassword(SHA256 sha, Credentials creds, User user)
         {
             var hashedPassword = sha.ComputeHash(Encoding.Default.GetBytes(creds.Password));
-            using var hashStream = new MemoryStream(hashedPassword);
+            using var hashStream = new MemoryStream();
             var saltBytes = Convert.FromBase64String(user.Salt);
+            hashStream.Write(hashedPassword);
             hashStream.Write(saltBytes);
-            var passwordHash = sha.ComputeHash(hashStream);
+            var passwordHash = sha.ComputeHash(hashStream.ToArray());
             var passwordHashBase64 = Convert.ToBase64String(passwordHash);
 
             bool validCreds = passwordHashBase64 == user.PasswordHash;
@@ -247,8 +285,6 @@ namespace KRZ.Np.Cli
             var encryptedBytes = AesUtil.EncryptAes(dbJson, aes.Key, aes.IV);
             dfs.Write(encryptedBytes);
         }
-
-
 
         // TODO create CRL if doesn't exist
         // TODO add CRL to CA
@@ -389,7 +425,6 @@ namespace KRZ.Np.Cli
 
         private static Credentials GetCredentials()
         {
-            Console.WriteLine($"Registration");
             Console.WriteLine();
             string username;
             do

@@ -10,8 +10,8 @@ namespace KRZ.Np.Cli.Extensions
 {
     public class X509AuthorityKeyIdentifierExtension : X509Extension
     {
-        private static Oid AuthorityKeyIdentifierOid => new Oid("2.5.29.35");
-        private static Oid SubjectKeyIdentifierOid => new Oid("2.5.29.14");
+        public static Oid AuthorityKeyIdentifierOid = new Oid("2.5.29.35");
+        public static Oid SubjectKeyIdentifierOid = new Oid("2.5.29.14");
 
         public X509AuthorityKeyIdentifierExtension(X509Certificate2 certificateAuthority, bool critical)
             : base(AuthorityKeyIdentifierOid, EncodeExtension(certificateAuthority), critical)
