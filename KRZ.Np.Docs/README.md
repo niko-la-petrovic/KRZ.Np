@@ -40,3 +40,50 @@ $qJson | % -Begin {$i = 0} -Process { $image = $images[$i]; .\KRZ.Np.Cli.exe -e 
 $modifiedImages = gci $imageDir | Where-Object { $_.Name.Contains("modified") }
 $modifiedImages | % { .\KRZ.Np.Cli.exe -r -s ($_.FullName) }
 ```
+
+## Root CA
+
+```bash
+BA
+Republic of Srpska
+Banja Luka
+Company
+Org Unit
+Root CA
+ca@ca.com
+Root CA
+
+root-ca
+```
+
+## CA1
+
+```
+BA
+Republic of Srpska
+Banja Luka
+Company
+Org Unit
+CA1
+ca1@ca.com
+CA1
+
+ca1
+```
+
+## User
+```
+y
+Nikola Petrovic
+123
+BA
+Republic of Srpska
+Banja Luka
+Company
+Org Unit
+Nikola Petrovic
+np@ca.com
+Nikola Petrovic
+
+nikola-petrovic
+```

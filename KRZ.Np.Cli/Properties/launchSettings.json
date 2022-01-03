@@ -5,7 +5,7 @@
     },
     "Steg": {
       "commandName": "Project",
-      "commandLineArgs": "-e -s \"G:\\downloads\\kripto_images_bmp\\1.bmp\" -i \"{\\\"TypeDiscriminator\\\":\\\"FreeQuestion\\\",\\\"Text\\\":\\\"Koliko je 94 + 269 ?\\\",\\\"Answer\\\":\\\"363\\\"}\""
+      "commandLineArgs": "-e -s \"G:\\downloads\\kripto_images_bmp\\1.bmp\" -i \"Test.\""
     },
     "Questions": {
       "commandName": "Project",
@@ -14,6 +14,18 @@
     "DeSteg": {
       "commandName": "Project",
       "commandLineArgs": "-r -s \"G:\\downloads\\kripto_images_bmp\\1_modified.bmp\" "
+    },
+    "Game": {
+      "commandName": "Project",
+      "commandLineArgs": "-g"
+    },
+    "Gen-Root-CA": {
+      "commandName": "Project",
+      "commandLineArgs": "--gen-root-ca"
+    },
+    "Gen-CA": {
+      "commandName": "Project",
+      "commandLineArgs": "--gen-ca -s \"C:\\Users\\Blue-Glass\\source\\repos\\KRZ.Np\\KRZ.Np.Cli\\bin\\Debug\\net5.0\\root-ca.pfx\""
     }
   }
 }
