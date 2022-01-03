@@ -192,11 +192,11 @@ namespace KRZ.Np.Cli
 
                 // todo check CRL
 
-                if (user.PlayCount == 3)
-                {
-                    // todo revoke cert
-                    continue;
-                }
+                //if (user.PlayCount == 3)
+                //{
+                //    // todo revoke cert
+                //    continue;
+                //}
 
                 var subjectKey = userCert.Extensions.Cast<X509Extension>().FirstOrDefault(ext => ext?.Oid.Value == X509AuthorityKeyIdentifierExtension.SubjectKeyIdentifierOid.Value) as X509SubjectKeyIdentifierExtension;
                 // TODO make into method, replace other uses
@@ -373,6 +373,13 @@ namespace KRZ.Np.Cli
         private static void CryptoWriteJson(
             object obj, string passwordFilePath, string dataFilePath)
         {
+            string json = JsonSerializer.Serialize(obj);
+            CryptoWriteString(json, passwordFilePath, dataFilePath);
+        }
+
+        private static void CryptoWriteString(
+            string str, string passwordFilePath, string dataFilePath)
+        {
             using var aes = Aes.Create();
             aes.GenerateIV();
             aes.GenerateKey();
@@ -391,9 +398,8 @@ namespace KRZ.Np.Cli
             using var pfs = File.OpenWrite(passwordFilePath);
             pfs.Write(encrypted);
 
-            string json = JsonSerializer.Serialize(obj);
             using var dfs = File.OpenWrite(dataFilePath);
-            var encryptedBytes = AesUtil.EncryptAes(json, aes.Key, aes.IV);
+            var encryptedBytes = AesUtil.EncryptAes(str, aes.Key, aes.IV);
             dfs.Write(encryptedBytes);
         }
 
