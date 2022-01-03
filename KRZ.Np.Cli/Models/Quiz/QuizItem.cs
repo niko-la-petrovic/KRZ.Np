@@ -1,4 +1,5 @@
 ﻿using System.Text.Json.Polymorph.Attributes;
+using System.Text.Json.Serialization;
 
 namespace KRZ.Np.Cli.Models.Quiz
 {
@@ -8,7 +9,10 @@ namespace KRZ.Np.Cli.Models.Quiz
         public string Text { get; set; }
         public string Answer { get; set; }
 
-        public bool IsCorrect(string answer)
+        [JsonIgnore]
+        public abstract string OfferedAnswerText { get; }
+
+        public virtual bool IsCorrect(string answer)
         {
             return Answer == answer;
         }

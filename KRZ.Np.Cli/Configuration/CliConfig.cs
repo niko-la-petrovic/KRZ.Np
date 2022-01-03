@@ -12,6 +12,28 @@ namespace KRZ.Np.Cli.Configuration
         public string Password { get; set; }
     }
 
+    public class PlayScore
+    {
+        public string Username { get; set; }
+        public DateTime DateTime { get; set; }
+        public int Score { get; set; }
+
+        public override string ToString()
+        {
+            return $"{Username}     {DateTime}      {Score}";
+        }
+    }
+
+    public class GameScores
+    {
+        public List<PlayScore> PlayScores { get; set; }
+
+        public override string ToString()
+        {
+            return string.Join(Environment.NewLine, PlayScores);
+        }
+    }
+
     public class CliConfig
     {
         public const string SectionName = nameof(CliConfig);

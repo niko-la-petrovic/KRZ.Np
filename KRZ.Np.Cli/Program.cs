@@ -16,6 +16,7 @@ using KRZ.Np.Cli.Configuration;
 using KRZ.Np.Cli.Extensions;
 using System.Linq;
 using KRZ.Np.Cli.Utility;
+using System.Text.RegularExpressions;
 
 namespace KRZ.Np.Cli
 {
@@ -51,6 +52,7 @@ namespace KRZ.Np.Cli
             public string Password { get; set; }
         }
 
+        private const int toAskCount = 5;
         static IConfiguration configuration;
         static readonly Random random = new();
         static CliConfig cliConfig;
@@ -100,6 +102,8 @@ namespace KRZ.Np.Cli
 
         private static void ProcessGame(Options o)
         {
+            var quizItems = LoadQuizItems();
+
             var caCertConfig = cliConfig.CaCerts[random.Next(cliConfig.CaCerts.Count)];
             var caCert = new X509Certificate2(caCertConfig.FilePath, caCertConfig.Password,
                 X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet);
@@ -107,6 +111,7 @@ namespace KRZ.Np.Cli
             var db = GetDb();
 
             bool finished = false;
+            User user = null;
             using var sha = SHA256.Create();
             do
             {
@@ -126,7 +131,7 @@ namespace KRZ.Np.Cli
                     continue;
                 }
 
-                var user = db.Users.FirstOrDefault(dc => dc.Username == creds.Username);
+                user = db.Users.FirstOrDefault(dc => dc.Username == creds.Username);
                 if (shouldRegister)
                 {
                     if (user is not null)
@@ -155,8 +160,7 @@ namespace KRZ.Np.Cli
                     };
 
                     db.Users.Add(user);
-                    X509Certificate2 rootCa = GetRootCa();
-                    SaveDb(db, rootCa);
+                    SaveDb(db);
 
                     continue;
                 }
@@ -188,7 +192,6 @@ namespace KRZ.Np.Cli
 
                 // todo check CRL
 
-
                 if (user.PlayCount == 3)
                 {
                     // todo revoke cert
@@ -208,7 +211,65 @@ namespace KRZ.Np.Cli
                 finished = true;
             } while (!finished);
 
-            // TODO play game
+            int correctAnswers = PlayQuiz(quizItems);
+            int score = (int)(((double)correctAnswers) / toAskCount * 100);
+            var currentDateTime = DateTime.Now;
+
+            user.PlayCount++;
+            // TODO check if PlayCount >= 3 -> revoke user cert
+            SaveDb(db);
+
+            Console.WriteLine();
+            Console.WriteLine($"[{currentDateTime}]: Your score is {score}/100.");
+            var playScore = new PlayScore { DateTime = currentDateTime, Score = score, Username = user.Username };
+
+            // TODO save score to file
+
+            Console.Write("Check other users' scores (y/n)?");
+            var checkScore = Console.ReadLine();
+            if (checkScore == "y")
+                return; // TODO read score file
+
+        }
+
+        private static int PlayQuiz(List<QuizItem> quizItems)
+        {
+            int correctAnswers = 0;
+            for (int i = 0; i < toAskCount; i++)
+            {
+                Console.WriteLine($"Question {i + 1}/{toAskCount}");
+                int itemIndex = random.Next(quizItems.Count);
+                var quizItem = quizItems[itemIndex];
+                Console.WriteLine(quizItem.Text);
+                Console.WriteLine(quizItem.OfferedAnswerText);
+                Console.Write("Answer:");
+                var answer = Console.ReadLine();
+                var isCorrect = quizItem.IsCorrect(answer);
+
+                if (isCorrect)
+                    correctAnswers++;
+
+                Console.WriteLine();
+            }
+
+            return correctAnswers;
+        }
+
+        private static List<QuizItem> LoadQuizItems()
+        {
+            Console.WriteLine("Loading...");
+            var questionsPath = cliConfig.QuestionsConfig.QuestionsPath;
+            var questionsRegex = cliConfig.QuestionsConfig.FileRegex;
+            var questionFiles = Directory.GetFiles(questionsPath)
+                .Where(f => Regex.IsMatch(f, questionsRegex));
+            var quizItems = questionFiles
+                .Select(f => Steganography.DecodeBmp(f))
+                .AsParallel()
+                .Select(json => JsonSerializer.Deserialize<QuizItem>(json, QuestionsJsonSerializerOptions()))
+                .ToList();
+            Console.WriteLine($"Finished loading {quizItems.Count} quiz items.");
+            Console.WriteLine();
+            return quizItems;
         }
 
         private static X509Certificate2 GetRootCa()
@@ -233,35 +294,44 @@ namespace KRZ.Np.Cli
 
         private static Db GetDb()
         {
-            Db db = null;
-            X509Certificate2 rootCa = GetRootCa();
-            if (!File.Exists(cliConfig.DbConfig.DbFile))
+            using var rootCa = GetRootCa();
+            var db = GetDb(rootCa, cliConfig.DbConfig.DbPasswordFile, cliConfig.DbConfig.DbFile);
+            return db;
+        }
+        private static Db GetDb(X509Certificate2 rootCa, string passwordFilePath, string dataFilePath)
+        {
+            Db db;
+            if (!File.Exists(dataFilePath))
             {
                 db = new Db { Users = new List<User>() };
-                SaveDb(db, rootCa);
+                SaveDb(db);
             }
             else
             {
-                var pfsBytes = File.ReadAllBytes(cliConfig.DbConfig.DbPasswordFile);
-                using var rsa = rootCa.GetRSAPrivateKey();
-                var decryptedRsa = rsa.Decrypt(pfsBytes, RSAEncryptionPadding.Pkcs1);
-
-                using var reader = new BinaryReader(new MemoryStream(decryptedRsa));
-                var iv = reader.ReadBytes(16);
-                var keySize = reader.ReadInt32() / 8;
-                var key = reader.ReadBytes(keySize);
-
-                var dBytes = File.ReadAllBytes(cliConfig.DbConfig.DbFile);
-                var dbJson = AesUtil.DecryptAes(dBytes, key, iv);
-                db = JsonSerializer.Deserialize<Db>(dbJson);
+                var json = CryptoReadJson(rootCa, passwordFilePath, dataFilePath);
+                db = JsonSerializer.Deserialize<Db>(json);
             }
 
             return db;
         }
 
-        private static void SaveDb(
-            Db db,
-            X509Certificate2 rootCa)
+        private static string CryptoReadJson(X509Certificate2 rootCa, string passwordFilePath, string dataFilePath)
+        {
+            var pfsBytes = File.ReadAllBytes(passwordFilePath);
+            using var rsa = rootCa.GetRSAPrivateKey();
+            var decryptedRsa = rsa.Decrypt(pfsBytes, RSAEncryptionPadding.Pkcs1);
+            using var reader = new BinaryReader(new MemoryStream(decryptedRsa));
+            var iv = reader.ReadBytes(16);
+            var keySize = reader.ReadInt32() / 8;
+            var key = reader.ReadBytes(keySize);
+
+            var dBytes = File.ReadAllBytes(dataFilePath);
+            var json = AesUtil.DecryptAes(dBytes, key, iv);
+            return json;
+        }
+
+        private static void CryptoWriteJson(
+            object obj, string passwordFilePath, string dataFilePath)
         {
             using var aes = Aes.Create();
             aes.GenerateIV();
@@ -273,17 +343,23 @@ namespace KRZ.Np.Cli
             writer.Write(aes.Key);
             var toEncrypt = memStream.ToArray();
 
+            using var rootCa = GetRootCa();
             var rsaParam = rootCa.GetRSAPublicKey().ExportParameters(false);
             var rsa = new RSACryptoServiceProvider();
             rsa.ImportParameters(rsaParam);
             var encrypted = rsa.Encrypt(toEncrypt, RSAEncryptionPadding.Pkcs1);
-            using var pfs = File.OpenWrite(cliConfig.DbConfig.DbPasswordFile);
+            using var pfs = File.OpenWrite(passwordFilePath);
             pfs.Write(encrypted);
 
-            string dbJson = JsonSerializer.Serialize(db);
-            using var dfs = File.OpenWrite(cliConfig.DbConfig.DbFile);
-            var encryptedBytes = AesUtil.EncryptAes(dbJson, aes.Key, aes.IV);
+            string json = JsonSerializer.Serialize(obj);
+            using var dfs = File.OpenWrite(dataFilePath);
+            var encryptedBytes = AesUtil.EncryptAes(json, aes.Key, aes.IV);
             dfs.Write(encryptedBytes);
+        }
+
+        private static void SaveDb(Db db)
+        {
+            CryptoWriteJson(db, cliConfig.DbConfig.DbPasswordFile, cliConfig.DbConfig.DbFile);
         }
 
         // TODO create CRL if doesn't exist
@@ -417,10 +493,13 @@ namespace KRZ.Np.Cli
 
         private static void SaveCert(byte[] certBytes)
         {
+            // TODO if user don't offer output file name, but remove illegal characters from username and use as cert out, or use random text as output file name?
             Console.Write("Output file name:");
-            string outputFileName = Console.ReadLine(); ;
-            using var fs = File.OpenWrite($"{outputFileName}.pfx");
+            string outputFileName = Console.ReadLine();
+            string outputFilePath = $"{outputFileName}.pfx";
+            using var fs = File.OpenWrite(outputFilePath);
             fs.Write(certBytes);
+            Console.WriteLine($"You may find your certificate at '{Path.GetFullPath(outputFilePath)}'");
         }
 
         private static Credentials GetCredentials()
@@ -471,10 +550,16 @@ namespace KRZ.Np.Cli
         {
             var srcFilePath = o.SourceFilePath;
             string json = File.ReadAllText(srcFilePath);
-            var options = new JsonSerializerOptions { };
-            options.AddDiscriminatorConverterForHierarchy<QuizItem>(QuizItemDiscriminator.DiscriminatorName);
+            JsonSerializerOptions options = QuestionsJsonSerializerOptions();
             var result = JsonSerializer.Deserialize<List<QuizItem>>(json, options);
             Console.WriteLine(JsonSerializer.Serialize(result));
+        }
+
+        private static JsonSerializerOptions QuestionsJsonSerializerOptions()
+        {
+            var options = new JsonSerializerOptions { };
+            options.AddDiscriminatorConverterForHierarchy<QuizItem>(QuizItemDiscriminator.DiscriminatorName);
+            return options;
         }
 
         private static void ProcessSteganographyArguments(Options options)
