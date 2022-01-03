@@ -219,17 +219,27 @@ namespace KRZ.Np.Cli
             // TODO check if PlayCount >= 3 -> revoke user cert
             SaveDb(db);
 
+            var gameScores = GetGameScores();
+
             Console.WriteLine();
-            Console.WriteLine($"[{currentDateTime}]: Your score is {score}/100.");
+            Console.WriteLine($"[{currentDateTime}]: Your score is {score}/100");
             var playScore = new PlayScore { DateTime = currentDateTime, Score = score, Username = user.Username };
 
-            // TODO save score to file
+            gameScores.PlayScores.Add(playScore);
+            SaveGameScores(gameScores);
 
             Console.Write("Check other users' scores (y/n)?");
             var checkScore = Console.ReadLine();
             if (checkScore == "y")
-                return; // TODO read score file
+            {
+                Console.WriteLine($"{Environment.NewLine}Game scores{Environment.NewLine}");
+                Console.WriteLine(gameScores);
+            }
 
+            Console.WriteLine();
+            Console.WriteLine("Press anything to continue");
+            Console.WriteLine();
+            Console.ReadKey(true);
         }
 
         private static int PlayQuiz(List<QuizItem> quizItems)
@@ -292,12 +302,42 @@ namespace KRZ.Np.Cli
             return validCreds;
         }
 
+        private static GameScores GetGameScores()
+        {
+            using var rootCa = GetRootCa();
+            var gs = GetGameScores(rootCa, cliConfig.GameScoreConfig.DbPasswordFile, cliConfig.GameScoreConfig.DbFile);
+            return gs;
+        }
+
+        private static GameScores GetGameScores(X509Certificate2 rootCa, string passwordFilePath, string dataFilePath)
+        {
+            GameScores gameScores;
+            if (!File.Exists(dataFilePath))
+            {
+                gameScores = new GameScores { PlayScores = new() };
+                CryptoWriteJson(gameScores, passwordFilePath, dataFilePath);
+            }
+            else
+            {
+                var json = CryptoReadString(rootCa, passwordFilePath, dataFilePath);
+                gameScores = JsonSerializer.Deserialize<GameScores>(json);
+            }
+
+            return gameScores;
+        }
+
+        private static void SaveGameScores(GameScores gameScores)
+        {
+            CryptoWriteJson(gameScores, cliConfig.GameScoreConfig.DbPasswordFile, cliConfig.GameScoreConfig.DbFile);
+        }
+
         private static Db GetDb()
         {
             using var rootCa = GetRootCa();
             var db = GetDb(rootCa, cliConfig.DbConfig.DbPasswordFile, cliConfig.DbConfig.DbFile);
             return db;
         }
+
         private static Db GetDb(X509Certificate2 rootCa, string passwordFilePath, string dataFilePath)
         {
             Db db;
@@ -308,14 +348,14 @@ namespace KRZ.Np.Cli
             }
             else
             {
-                var json = CryptoReadJson(rootCa, passwordFilePath, dataFilePath);
+                var json = CryptoReadString(rootCa, passwordFilePath, dataFilePath);
                 db = JsonSerializer.Deserialize<Db>(json);
             }
 
             return db;
         }
 
-        private static string CryptoReadJson(X509Certificate2 rootCa, string passwordFilePath, string dataFilePath)
+        private static string CryptoReadString(X509Certificate2 rootCa, string passwordFilePath, string dataFilePath)
         {
             var pfsBytes = File.ReadAllBytes(passwordFilePath);
             using var rsa = rootCa.GetRSAPrivateKey();
@@ -326,8 +366,8 @@ namespace KRZ.Np.Cli
             var key = reader.ReadBytes(keySize);
 
             var dBytes = File.ReadAllBytes(dataFilePath);
-            var json = AesUtil.DecryptAes(dBytes, key, iv);
-            return json;
+            var readString = AesUtil.DecryptAes(dBytes, key, iv);
+            return readString;
         }
 
         private static void CryptoWriteJson(
