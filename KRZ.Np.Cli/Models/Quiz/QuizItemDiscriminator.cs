@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace KRZ.Np.Cli.Models
+﻿namespace KRZ.Np.Cli.Models.Quiz
 {
     public static class QuizItemDiscriminator
     {

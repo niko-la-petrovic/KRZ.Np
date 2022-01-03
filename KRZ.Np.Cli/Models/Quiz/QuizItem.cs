@@ -1,11 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Text.Json.Polymorph.Attributes;
-using System.Threading.Tasks;
+﻿using System.Text.Json.Polymorph.Attributes;
 
-namespace KRZ.Np.Cli.Models
+namespace KRZ.Np.Cli.Models.Quiz
 {
     [JsonBaseClass(DiscriminatorName = QuizItemDiscriminator.DiscriminatorName)]
     public abstract class QuizItem
