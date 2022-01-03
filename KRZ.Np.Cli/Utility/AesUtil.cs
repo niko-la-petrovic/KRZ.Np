@@ -33,6 +33,7 @@ namespace KRZ.Np.Cli.Utility
                     {
                         using (StreamWriter swEncrypt = new StreamWriter(csEncrypt))
                         {
+                            swEncrypt.Write(plainText);
                         }
                         encrypted = msEncrypt.ToArray();
                     }

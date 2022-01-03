@@ -154,8 +154,7 @@ namespace KRZ.Np.Cli
                     };
 
                     db.Users.Add(user);
-                    X509Certificate2 rootCa = new X509Certificate2(cliConfig.RootCa.FilePath, cliConfig.RootCa.Password,
-                        X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet);
+                    X509Certificate2 rootCa = GetRootCa();
                     SaveDb(db, rootCa);
 
                     continue;
@@ -175,6 +174,12 @@ namespace KRZ.Np.Cli
             // TODO play game
         }
 
+        private static X509Certificate2 GetRootCa()
+        {
+            return new X509Certificate2(cliConfig.RootCa.FilePath, cliConfig.RootCa.Password,
+                                    X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet);
+        }
+
         private static bool CheckPassword(SHA256 sha, Credentials creds, User user)
         {
             var hashedPassword = sha.ComputeHash(Encoding.Default.GetBytes(creds.Password));
@@ -191,8 +196,7 @@ namespace KRZ.Np.Cli
         private static Db GetDb()
         {
             Db db = null;
-            X509Certificate2 rootCa = new X509Certificate2(cliConfig.RootCa.FilePath, cliConfig.RootCa.Password,
-                X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet);
+            X509Certificate2 rootCa = GetRootCa();
             if (!File.Exists(cliConfig.DbConfig.DbFile))
             {
                 db = new Db { Users = new List<User>() };
@@ -234,7 +238,7 @@ namespace KRZ.Np.Cli
             var rsaParam = rootCa.GetRSAPublicKey().ExportParameters(false);
             var rsa = new RSACryptoServiceProvider();
             rsa.ImportParameters(rsaParam);
-            var encrypted = rsa.Encrypt(toEncrypt, false);
+            var encrypted = rsa.Encrypt(toEncrypt, RSAEncryptionPadding.Pkcs1);
             using var pfs = File.OpenWrite(cliConfig.DbConfig.DbPasswordFile);
             pfs.Write(encrypted);
 
