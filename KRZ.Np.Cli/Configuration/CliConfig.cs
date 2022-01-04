@@ -10,6 +10,7 @@ namespace KRZ.Np.Cli.Configuration
     {
         public string FilePath { get; set; }
         public string Password { get; set; }
+        public string CrlDPPath { get; set; }
     }
 
     public class PlayScore
@@ -42,7 +43,6 @@ namespace KRZ.Np.Cli.Configuration
         public DbConfig DbConfig { get; set; }
         public QuestionsConfig QuestionsConfig { get; set; }
         public GameScoresConfig GameScoreConfig{ get; set; }
-        public string CrlDPPath { get; set; }
     }
 
     public class DbConfig

@@ -124,9 +124,12 @@ namespace KRZ.Np.Cli
 
             var quizItems = LoadQuizItems();
 
-            var caCertConfig = cliConfig.CaCerts[random.Next(cliConfig.CaCerts.Count)];
-            using var caCert = new X509Certificate2(caCertConfig.FilePath, caCertConfig.Password,
+            var registerCaConfig = cliConfig.CaCerts[random.Next(cliConfig.CaCerts.Count)];
+            var caCerts = cliConfig.CaCerts.Select(cc => new X509Certificate2(cc.FilePath, cc.Password));
+            using var regsiterCaCert = new X509Certificate2(registerCaConfig.FilePath, registerCaConfig.Password,
                 X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet);
+            X509Certificate2 userIssuerCa = null;
+            CaCert userIssuerCaConfig = null;
 
             var db = GetDb();
 
@@ -147,7 +150,7 @@ namespace KRZ.Np.Cli
                 var creds = GetCredentials();
                 if (creds.Password.Length < 3)
                 {
-                    Console.WriteLine("Password is too short.");
+                    Console.WriteLine("Password is too short");
                     continue;
                 }
 
@@ -156,11 +159,11 @@ namespace KRZ.Np.Cli
                 {
                     if (user is not null)
                     {
-                        Console.WriteLine("Username is already in use.");
+                        Console.WriteLine("Username is already in use");
                         continue;
                     }
 
-                    using var _ = GenCert(parentCert: caCert, isUser: true, ski: creds.Username);
+                    using var _ = GenCert(parentCert: regsiterCaCert, isUser: true, ski: creds.Username, caCertConfig: registerCaConfig);
 
                     var saltBytes = Salt.GetSalt();
                     var saltBase64 = Convert.ToBase64String(saltBytes);
@@ -187,13 +190,13 @@ namespace KRZ.Np.Cli
 
                 if (user is null)
                 {
-                    Console.WriteLine("Invalid credentials.");
+                    Console.WriteLine("Invalid credentials");
                     continue;
                 }
                 bool validCreds = CheckPassword(sha, creds, user);
                 if (!validCreds)
                 {
-                    Console.WriteLine("Invalid credentials.");
+                    Console.WriteLine("Invalid credentials");
                     continue;
                 }
 
@@ -204,12 +207,10 @@ namespace KRZ.Np.Cli
                 try
                 {
                     userCert = new X509Certificate2(userCertPath, certPassword);
-                    var caCerts = cliConfig.CaCerts.Select(cc => new X509Certificate2(cc.FilePath, cc.Password)).Where(c => c.Subject == userCert.Issuer);
-                    var issuers = caCerts.Count();
-                    caCerts.ToList().ForEach(c => c?.Dispose());
-                    if (issuers == 0)
+                    var issuingCa = caCerts.FirstOrDefault(c => c.Subject == userCert.Issuer);
+                    if (issuingCa is null)
                     {
-                        Console.WriteLine("The CA issuer of your certificate is invalid.");
+                        Console.WriteLine("The CA issuer of your certificate is invalid");
                         continue;
                     }
                 }
@@ -232,17 +233,19 @@ namespace KRZ.Np.Cli
 
                     crlFilePath = name.ToString();
 
-                    if (crlFilePath != cliConfig.CrlDPPath)
+                    userIssuerCa = caCerts.FirstOrDefault(c => c.Subject == userCert.Issuer);
+                    userIssuerCaConfig = cliConfig.CaCerts.FirstOrDefault(ca => ca.CrlDPPath == crlFilePath);
+                    if (userIssuerCa is null || userIssuerCaConfig is null)
                     {
-                        Console.WriteLine("Your certificate CRL DP is not trusted.");
+                        Console.WriteLine("Your certificate CRL DP is not trusted");
                         continue;
                     }
 
-                    crl = GetCrl(cliConfig.CrlDPPath);
+                    crl = GetCrl(userIssuerCaConfig.CrlDPPath);
                     var revokedCert = crl.GetRevokedCertificate(new Org.BouncyCastle.Math.BigInteger(userCert.SerialNumber));
                     if (revokedCert is not null)
                     {
-                        Console.WriteLine("Your certificate has been revoked.");
+                        Console.WriteLine("Your certificate has been revoked");
                         continue;
                     }
                 }
@@ -257,11 +260,11 @@ namespace KRZ.Np.Cli
                 var userSki = Convert.ToHexString(Encoding.Default.GetBytes(creds.Username));
                 if (subjectKey.SubjectKeyIdentifier != userSki)
                 {
-                    Console.WriteLine("You do not own this certificate.");
+                    Console.WriteLine("You do not own this certificate");
                     continue;
                 }
 
-                Console.WriteLine("Successful login.");
+                Console.WriteLine("Successful login");
                 finished = true;
             } while (!finished);
 
@@ -274,14 +277,15 @@ namespace KRZ.Np.Cli
 
             if (user.PlayCount == 3)
             {
-                var modifiedCrl = GetCrl(cliConfig.CrlDPPath, modify: true, toAdd: userCert);
-                Console.WriteLine("You have played your last game with this certificate.");
+                var modifiedCrl = GetCrl(userIssuerCaConfig.CrlDPPath, modify: true, toAdd: userCert);
+                Console.WriteLine("You have played your last game with this certificate");
             }
 
             var gameScores = GetGameScores();
 
             Console.WriteLine();
             Console.WriteLine($"[{currentDateTime}]: Your score is {score}/100");
+            Console.WriteLine();
             var playScore = new PlayScore { DateTime = currentDateTime, Score = score, Username = user.Username };
 
             gameScores.PlayScores.Add(playScore);
@@ -300,6 +304,7 @@ namespace KRZ.Np.Cli
             Console.WriteLine();
             Console.ReadKey(true);
 
+            caCerts.ToList().ForEach(c => c?.Dispose());
             userCert?.Dispose();
         }
 
@@ -338,7 +343,7 @@ namespace KRZ.Np.Cli
                 .AsParallel()
                 .Select(json => JsonSerializer.Deserialize<QuizItem>(json, QuestionsJsonSerializerOptions()))
                 .ToList();
-            Console.WriteLine($"Finished loading {quizItems.Count} quiz items.");
+            Console.WriteLine($"Finished loading {quizItems.Count} quiz items");
             Console.WriteLine();
             return quizItems;
         }
@@ -477,7 +482,8 @@ namespace KRZ.Np.Cli
             bool saveCert = true,
             bool installCert = true,
             bool isUser = false,
-            string ski = null)
+            string ski = null,
+            CaCert caCertConfig = null)
         {
             bool selfSigned = parentCert is null;
 
@@ -544,7 +550,7 @@ namespace KRZ.Np.Cli
             {
                 request.CertificateExtensions.Add(new X509BasicConstraintsExtension(certificateAuthority: false, false, 0, true));
                 var asnEncoder = new AsnWriter(AsnEncodingRules.DER);
-                var generalName = new GeneralName(GeneralName.UniformResourceIdentifier, cliConfig.CrlDPPath);
+                var generalName = new GeneralName(GeneralName.UniformResourceIdentifier, caCertConfig.CrlDPPath);
                 var generalNames = new GeneralNames(generalName);
                 var dp = new DistributionPoint(new DistributionPointName(generalNames), new ReasonFlags(ReasonFlags.CessationOfOperation), null);
                 var crlDistPoint = new CrlDistPoint(new DistributionPoint[] { dp });
@@ -576,7 +582,7 @@ namespace KRZ.Np.Cli
                     Encoding.Default.GetBytes(Guid.NewGuid().ToString()).AsSpan().Slice(0, 8).ToArray()
                     );
 
-            Console.WriteLine("Certificate created.");
+            Console.WriteLine("Certificate created");
             Console.WriteLine();
             Console.Write("Friendly certificate name:");
             string friendlyName = Console.ReadLine();
@@ -613,7 +619,7 @@ namespace KRZ.Np.Cli
                 existingCrl = new X509Crl(crlBytes);
             }
 
-            if (!modify)
+            if (!modify && existingCrl is not null)
                 return existingCrl;
 
             using var rootCa = GetRootCa(exportable: true);
@@ -699,7 +705,7 @@ namespace KRZ.Np.Cli
                 {
                     if (enforceLength && password.Length < 3)
                     {
-                        Console.WriteLine("Password is too short. Try again.");
+                        Console.WriteLine("Password is too short. Try again");
                         Console.Write("Enter password:");
                         password = "";
                         continue;
