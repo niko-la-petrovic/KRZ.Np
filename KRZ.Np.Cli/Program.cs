@@ -114,20 +114,8 @@ namespace KRZ.Np.Cli
 
         private static void ProcessGame(Options o)
         {
-            CreateCrl(cliConfig.CrlDPPath);
-            //{
-            //    var cert = new X509Certificate2(@"C:\Users\Blue-Glass\Documents\Uni\Sem5\KRIPTO\Lab\Priprema\cert.crt");
-            //    var ext = cert.Extensions.Cast<X509Extension>().FirstOrDefault(ext => ext?.Oid.Value == crlDpOid);
-            //    var rawData = ext.RawData;
-            //    var crlDistPoint = CrlDistPoint.GetInstance(rawData);
-            //    var distPoint = crlDistPoint.GetDistributionPoints().FirstOrDefault();
-            //    var distPointName = distPoint.DistributionPointName.Name;
-            //    var names = GeneralNames.GetInstance(distPointName).GetNames().FirstOrDefault();
-            //    var name = names.Name;
-
-            //    string crlFilePath = name.ToString();
-            //}
-
+            X509Crl crl;
+            X509Certificate2 userCert = null;
 
             ////var decoder = new AsnReader(rawData, AsnEncodingRules.DER);
             ////var sequence = decoder.ReadSequence();
@@ -211,10 +199,11 @@ namespace KRZ.Np.Cli
 
                 Console.Write("Specify your digital certificate:");
                 string userCertPath = Console.ReadLine();
-                X509Certificate2 userCert;
+                GetSecureText(out var certPassword, "Enter your certificate password:");
+                Console.WriteLine();
                 try
                 {
-                    userCert = new X509Certificate2(userCertPath);
+                    userCert = new X509Certificate2(userCertPath, certPassword);
                 }
                 catch (Exception ex)
                 {
@@ -234,18 +223,26 @@ namespace KRZ.Np.Cli
                     var name = names.Name;
 
                     crlFilePath = name.ToString();
+
+                    if (crlFilePath != cliConfig.CrlDPPath)
+                    {
+                        Console.WriteLine("Your certificate CRL DP is not trusted.");
+                        continue;
+                    }
+
+                    crl = GetCrl(cliConfig.CrlDPPath);
+                    var revokedCert = crl.GetRevokedCertificate(new Org.BouncyCastle.Math.BigInteger(userCert.SerialNumber));
+                    if (revokedCert is not null)
+                    {
+                        Console.WriteLine("Your certificate has been revoked.");
+                        continue;
+                    }
                 }
                 catch (Exception)
                 {
                     Console.WriteLine("Failed to read CRL DP");
                     continue;
                 }
-
-                //if (user.PlayCount == 3)
-                //{
-                //    // todo revoke cert
-                //    continue;
-                //}
 
                 var subjectKey = userCert.Extensions.Cast<X509Extension>().FirstOrDefault(ext => ext?.Oid.Value == X509AuthorityKeyIdentifierExtension.SubjectKeyIdentifierOid.Value) as X509SubjectKeyIdentifierExtension;
                 // TODO make into method, replace other uses
@@ -265,8 +262,13 @@ namespace KRZ.Np.Cli
             var currentDateTime = DateTime.Now;
 
             user.PlayCount++;
-            // TODO check if PlayCount >= 3 -> revoke user cert
             SaveDb(db);
+
+            if (user.PlayCount == 3)
+            {
+                var modifiedCrl = GetCrl(cliConfig.CrlDPPath, modify: true, toAdd: userCert);
+                Console.WriteLine("You have played your last game with this certificate.");
+            }
 
             var gameScores = GetGameScores();
 
@@ -467,11 +469,6 @@ namespace KRZ.Np.Cli
             bool isUser = false,
             string ski = null)
         {
-            if (!File.Exists(cliConfig.CrlDPPath))
-            {
-                CreateCrl(cliConfig.CrlDPPath);
-            }
-
             bool selfSigned = parentCert is null;
 
             string country, emailAddress, state, locality, organization, organizationalUnit,
@@ -537,9 +534,9 @@ namespace KRZ.Np.Cli
             {
                 request.CertificateExtensions.Add(new X509BasicConstraintsExtension(certificateAuthority: false, false, 0, true));
                 var asnEncoder = new AsnWriter(AsnEncodingRules.DER);
-                var generalName = new GeneralName(GeneralName.UniformResourceIdentifier, cliConfig.CrlPath);
+                var generalName = new GeneralName(GeneralName.UniformResourceIdentifier, cliConfig.CrlDPPath);
                 var generalNames = new GeneralNames(generalName);
-                var dp = new DistributionPoint(new DistributionPointName(generalNames), new ReasonFlags(ReasonFlags.PrivilegeWithdrawn), null);
+                var dp = new DistributionPoint(new DistributionPointName(generalNames), new ReasonFlags(ReasonFlags.CessationOfOperation), null);
                 var crlDistPoint = new CrlDistPoint(new DistributionPoint[] { dp });
                 var crlDpDer = crlDistPoint.GetDerEncoded();
                 request.CertificateExtensions.Add(new X509Extension(new Oid(crlDpOid), crlDpDer, true));
@@ -574,8 +571,7 @@ namespace KRZ.Np.Cli
             Console.Write("Friendly certificate name:");
             string friendlyName = Console.ReadLine();
             certificate.FriendlyName = friendlyName;
-            string pfxPassword = "";
-            pfxPassword = GetSecureText(pfxPassword, "Certificate encryption password:");
+            GetSecureText(out var pfxPassword, "Certificate encryption password:");
             if (string.IsNullOrWhiteSpace(pfxPassword))
                 pfxPassword = null;
 
@@ -598,8 +594,18 @@ namespace KRZ.Np.Cli
             return certificate;
         }
 
-        private static void CreateCrl(string crlDPPath)
+        private static X509Crl GetCrl(string crlDPPath, bool modify = false, X509Certificate2 toAdd = null)
         {
+            X509Crl existingCrl = null;
+            if (File.Exists(crlDPPath))
+            {
+                var crlBytes = File.ReadAllBytes(crlDPPath);
+                existingCrl = new X509Crl(crlBytes);
+            }
+
+            if (!modify)
+                return existingCrl;
+
             // TODO check using with x509 everywhere
             using var rootCa = GetRootCa(exportable: true);
             var certParser = new X509CertificateParser();
@@ -611,9 +617,18 @@ namespace KRZ.Np.Cli
             crlGen.SetNextUpdate(DateTime.Now.AddDays(10));
             crlGen.SetSignatureAlgorithm(PkcsObjectIdentifiers.Sha256WithRsaEncryption.ToString().ToUpper());
 
-            //crlGen.AddCrlEntry(Org.BouncyCastle.Math.BigInteger.One, DateTime.Now, CrlReason.PrivilegeWithdrawn);
+            if (existingCrl is not null)
+            {
+                try
+                {
+                    foreach (X509CrlEntry entry in existingCrl.GetRevokedCertificates())
+                        crlGen.AddCrlEntry(entry.SerialNumber, entry.RevocationDate, ReasonFlags.CessationOfOperation);
+                }
+                catch (NullReferenceException) { }
+            }
 
-            //crlGen.AddExtension(X509Extensions.CrlNumber, false, new CrlNumber(Org.BouncyCastle.Math.BigInteger.One));
+            if (toAdd is not null)
+                crlGen.AddCrlEntry(new Org.BouncyCastle.Math.BigInteger(toAdd.SerialNumber), DateTime.Now, ReasonFlags.CessationOfOperation);
 
             RsaPrivateCrtKeyParameters privKeyParams;
             {
@@ -630,11 +645,10 @@ namespace KRZ.Np.Cli
                 privKeyParams = new RsaPrivateCrtKeyParameters(privKeyStruct);
             }
 
-            // TODO apparently something is wrong with the public key ... with the crl list?
-
             X509Crl crl = crlGen.Generate(privKeyParams);
             using var fs = File.OpenWrite(crlDPPath);
             fs.Write(crl.GetEncoded());
+            return crl;
         }
 
         private static void SaveCert(byte[] certBytes)
@@ -658,15 +672,15 @@ namespace KRZ.Np.Cli
                 username = Console.ReadLine();
             } while (string.IsNullOrWhiteSpace(username));
 
-            string password = "";
-            password = GetSecureText(password, "Enter password:", enforceLength: true);
+            GetSecureText(out var password, "Enter password:", enforceLength: true);
             return new Credentials { Username = username, Password = password };
         }
 
-        private static string GetSecureText(string password, string message, bool enforceLength = false)
+        private static void GetSecureText(out string password, string message, bool enforceLength = false)
         {
             Console.Write(message);
             bool finished = false;
+            password = "";
             do
             {
                 var keyInfo = Console.ReadKey(true);
@@ -689,7 +703,6 @@ namespace KRZ.Np.Cli
 
             } while (!finished || string.IsNullOrWhiteSpace(password));
             Console.WriteLine();
-            return password;
         }
 
         private static void ProcessQuestions(Options o)

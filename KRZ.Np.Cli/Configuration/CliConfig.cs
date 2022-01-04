@@ -40,7 +40,6 @@ namespace KRZ.Np.Cli.Configuration
         public CaCert RootCa { get; set; }
         public List<CaCert> CaCerts { get; set; }
         public DbConfig DbConfig { get; set; }
-        public string CrlPath { get; set; }
         public QuestionsConfig QuestionsConfig { get; set; }
         public GameScoresConfig GameScoreConfig{ get; set; }
         public string CrlDPPath { get; set; }
