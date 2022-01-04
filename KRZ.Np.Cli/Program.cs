@@ -17,6 +17,15 @@ using KRZ.Np.Cli.Extensions;
 using System.Linq;
 using KRZ.Np.Cli.Utility;
 using System.Text.RegularExpressions;
+using System.Formats.Asn1;
+using Org.BouncyCastle.X509;
+using Org.BouncyCastle.Asn1.X509;
+using X509Extension = System.Security.Cryptography.X509Certificates.X509Extension;
+using Org.BouncyCastle.Asn1;
+using Org.BouncyCastle.Asn1.Pkcs;
+using Org.BouncyCastle.Crypto;
+using Org.BouncyCastle.Crypto.Parameters;
+using Org.BouncyCastle.Crypto.Operators;
 
 namespace KRZ.Np.Cli
 {
@@ -56,6 +65,9 @@ namespace KRZ.Np.Cli
         static IConfiguration configuration;
         static readonly Random random = new();
         static CliConfig cliConfig;
+
+        const string crlDpOid = "2.5.29.31";
+
         static void Main(string[] args)
         {
             configuration = new ConfigurationBuilder()
@@ -102,6 +114,26 @@ namespace KRZ.Np.Cli
 
         private static void ProcessGame(Options o)
         {
+            CreateCrl(cliConfig.CrlDPPath);
+            //{
+            //    var cert = new X509Certificate2(@"C:\Users\Blue-Glass\Documents\Uni\Sem5\KRIPTO\Lab\Priprema\cert.crt");
+            //    var ext = cert.Extensions.Cast<X509Extension>().FirstOrDefault(ext => ext?.Oid.Value == crlDpOid);
+            //    var rawData = ext.RawData;
+            //    var crlDistPoint = CrlDistPoint.GetInstance(rawData);
+            //    var distPoint = crlDistPoint.GetDistributionPoints().FirstOrDefault();
+            //    var distPointName = distPoint.DistributionPointName.Name;
+            //    var names = GeneralNames.GetInstance(distPointName).GetNames().FirstOrDefault();
+            //    var name = names.Name;
+
+            //    string crlFilePath = name.ToString();
+            //}
+
+
+            ////var decoder = new AsnReader(rawData, AsnEncodingRules.DER);
+            ////var sequence = decoder.ReadSequence();
+            ////var nestedSequence = sequence.ReadSequence(Asn1Tag.Sequence);
+            ////var contentBytes = nestedSequence.PeekContentBytes().Span;
+
             var quizItems = LoadQuizItems();
 
             var caCertConfig = cliConfig.CaCerts[random.Next(cliConfig.CaCerts.Count)];
@@ -190,7 +222,24 @@ namespace KRZ.Np.Cli
                     continue;
                 }
 
-                // todo check CRL
+                string crlFilePath = null;
+                try
+                {
+                    var ext = userCert.Extensions.Cast<X509Extension>().FirstOrDefault(ext => ext?.Oid.Value == crlDpOid);
+                    var rawData = ext.RawData;
+                    var crlDistPoint = CrlDistPoint.GetInstance(rawData);
+                    var distPoint = crlDistPoint.GetDistributionPoints().FirstOrDefault();
+                    var distPointName = distPoint.DistributionPointName.Name;
+                    var names = GeneralNames.GetInstance(distPointName).GetNames().FirstOrDefault();
+                    var name = names.Name;
+
+                    crlFilePath = name.ToString();
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine("Failed to read CRL DP");
+                    continue;
+                }
 
                 //if (user.PlayCount == 3)
                 //{
@@ -282,10 +331,13 @@ namespace KRZ.Np.Cli
             return quizItems;
         }
 
-        private static X509Certificate2 GetRootCa()
+        private static X509Certificate2 GetRootCa(bool exportable = false)
         {
-            return new X509Certificate2(cliConfig.RootCa.FilePath, cliConfig.RootCa.Password,
-                                    X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet);
+            var storageFlags = X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet;
+            if (exportable)
+                storageFlags |= X509KeyStorageFlags.Exportable;
+
+            return new X509Certificate2(cliConfig.RootCa.FilePath, cliConfig.RootCa.Password, storageFlags);
         }
 
         private static bool CheckPassword(SHA256 sha, Credentials creds, User user)
@@ -408,9 +460,6 @@ namespace KRZ.Np.Cli
             CryptoWriteJson(db, cliConfig.DbConfig.DbPasswordFile, cliConfig.DbConfig.DbFile);
         }
 
-        // TODO create CRL if doesn't exist
-        // TODO add CRL to CA
-        // TDOo add CRL to user cert
         private static X509Certificate2 GenCert(
             X509Certificate2 parentCert = null,
             bool saveCert = true,
@@ -418,6 +467,11 @@ namespace KRZ.Np.Cli
             bool isUser = false,
             string ski = null)
         {
+            if (!File.Exists(cliConfig.CrlDPPath))
+            {
+                CreateCrl(cliConfig.CrlDPPath);
+            }
+
             bool selfSigned = parentCert is null;
 
             string country, emailAddress, state, locality, organization, organizationalUnit,
@@ -482,6 +536,13 @@ namespace KRZ.Np.Cli
             else
             {
                 request.CertificateExtensions.Add(new X509BasicConstraintsExtension(certificateAuthority: false, false, 0, true));
+                var asnEncoder = new AsnWriter(AsnEncodingRules.DER);
+                var generalName = new GeneralName(GeneralName.UniformResourceIdentifier, cliConfig.CrlPath);
+                var generalNames = new GeneralNames(generalName);
+                var dp = new DistributionPoint(new DistributionPointName(generalNames), new ReasonFlags(ReasonFlags.PrivilegeWithdrawn), null);
+                var crlDistPoint = new CrlDistPoint(new DistributionPoint[] { dp });
+                var crlDpDer = crlDistPoint.GetDerEncoded();
+                request.CertificateExtensions.Add(new X509Extension(new Oid(crlDpOid), crlDpDer, true));
             }
             var skiString = ski ?? commonName;
             request.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(Convert.ToHexString(Encoding.Default.GetBytes(skiString)), true));
@@ -535,6 +596,45 @@ namespace KRZ.Np.Cli
             }
 
             return certificate;
+        }
+
+        private static void CreateCrl(string crlDPPath)
+        {
+            // TODO check using with x509 everywhere
+            using var rootCa = GetRootCa(exportable: true);
+            var certParser = new X509CertificateParser();
+            var bouncyCert = certParser.ReadCertificate(rootCa.RawData);
+
+            var crlGen = new X509V2CrlGenerator();
+            crlGen.SetIssuerDN(PrincipalUtilities.GetSubjectX509Principal(bouncyCert));
+            crlGen.SetThisUpdate(DateTime.Now);
+            crlGen.SetNextUpdate(DateTime.Now.AddDays(10));
+            crlGen.SetSignatureAlgorithm(PkcsObjectIdentifiers.Sha256WithRsaEncryption.ToString().ToUpper());
+
+            //crlGen.AddCrlEntry(Org.BouncyCastle.Math.BigInteger.One, DateTime.Now, CrlReason.PrivilegeWithdrawn);
+
+            //crlGen.AddExtension(X509Extensions.CrlNumber, false, new CrlNumber(Org.BouncyCastle.Math.BigInteger.One));
+
+            RsaPrivateCrtKeyParameters privKeyParams;
+            {
+                // TODO remove. This is to bypass windows limitations of not exporting the private key in plaintext.
+                using var loadedRsa = rootCa.GetRSAPrivateKey();
+                var exported = loadedRsa.ExportEncryptedPkcs8PrivateKey("temp", new PbeParameters(PbeEncryptionAlgorithm.Aes256Cbc, HashAlgorithmName.SHA256, 1));
+                RSA temp = RSA.Create();
+                temp.ImportEncryptedPkcs8PrivateKey("temp", exported, out _);
+                var loadedPrivate = temp.ExportRSAPrivateKey();
+
+                var privKeyObj = Asn1Object.FromByteArray(loadedPrivate);
+                var privKeyStruct = RsaPrivateKeyStructure.GetInstance((Asn1Sequence)privKeyObj);
+
+                privKeyParams = new RsaPrivateCrtKeyParameters(privKeyStruct);
+            }
+
+            // TODO apparently something is wrong with the public key ... with the crl list?
+
+            X509Crl crl = crlGen.Generate(privKeyParams);
+            using var fs = File.OpenWrite(crlDPPath);
+            fs.Write(crl.GetEncoded());
         }
 
         private static void SaveCert(byte[] certBytes)

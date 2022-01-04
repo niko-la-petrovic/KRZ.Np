@@ -43,6 +43,7 @@ namespace KRZ.Np.Cli.Configuration
         public string CrlPath { get; set; }
         public QuestionsConfig QuestionsConfig { get; set; }
         public GameScoresConfig GameScoreConfig{ get; set; }
+        public string CrlDPPath { get; set; }
     }
 
     public class DbConfig
