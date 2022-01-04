@@ -125,7 +125,7 @@ namespace KRZ.Np.Cli
             var quizItems = LoadQuizItems();
 
             var caCertConfig = cliConfig.CaCerts[random.Next(cliConfig.CaCerts.Count)];
-            var caCert = new X509Certificate2(caCertConfig.FilePath, caCertConfig.Password,
+            using var caCert = new X509Certificate2(caCertConfig.FilePath, caCertConfig.Password,
                 X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet);
 
             var db = GetDb();
@@ -291,6 +291,8 @@ namespace KRZ.Np.Cli
             Console.WriteLine("Press anything to continue");
             Console.WriteLine();
             Console.ReadKey(true);
+
+            userCert?.Dispose();
         }
 
         private static int PlayQuiz(List<QuizItem> quizItems)
