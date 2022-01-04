@@ -102,7 +102,7 @@ namespace KRZ.Np.Cli
 
         private static void ProcessCa(Options o)
         {
-            var rootCaCert = new X509Certificate2(o.SourceFilePath, o.Password,
+            using var rootCaCert = new X509Certificate2(o.SourceFilePath, o.Password,
                 X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet);
             using var cert = GenCert(parentCert: rootCaCert, saveCert: true, isUser: false);
         }
@@ -204,7 +204,14 @@ namespace KRZ.Np.Cli
                 try
                 {
                     userCert = new X509Certificate2(userCertPath, certPassword);
-                    // TODO validate root ca
+                    var caCerts = cliConfig.CaCerts.Select(cc => new X509Certificate2(cc.FilePath, cc.Password)).Where(c => c.Subject == userCert.Issuer);
+                    var issuers = caCerts.Count();
+                    caCerts.ToList().ForEach(c => c?.Dispose());
+                    if (issuers == 0)
+                    {
+                        Console.WriteLine("The CA issuer of your certificate is invalid.");
+                        continue;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -609,7 +616,6 @@ namespace KRZ.Np.Cli
             if (!modify)
                 return existingCrl;
 
-            // TODO check using with x509 everywhere
             using var rootCa = GetRootCa(exportable: true);
             var certParser = new X509CertificateParser();
             var bouncyCert = certParser.ReadCertificate(rootCa.RawData);
