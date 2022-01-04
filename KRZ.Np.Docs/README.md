@@ -71,6 +71,21 @@ CA1
 ca1
 ```
 
+## CA2
+
+```
+BA
+Republic of Srpska
+Banja Luka
+Company
+Org Unit
+CA2
+ca2@ca.com
+CA2
+1234
+ca2
+```
+
 ## Register User
 ```
 y
@@ -97,4 +112,30 @@ Nikola Petrovic
 C:\Users\Blue-Glass\source\repos\KRZ.Np\KRZ.Np.Cli\bin\Debug\net5.0\nikola-petrovic.pfx
 
 
+```
+
+## Register another user
+
+```
+y
+Nikola Petrovic1
+123
+BA
+Republic of Srpska
+Banja Luka
+Company
+Org Unit
+Nikola Petrovic1
+np@ca.com
+Nikola Petrovic1
+321
+nikola-petrovic1
+```
+
+```
+n
+Nikola Petrovic1
+123
+C:\Users\Blue-Glass\source\repos\KRZ.Np\KRZ.Np.Cli\bin\Debug\net5.0\nikola-petrovic1.pfx
+321
 ```
