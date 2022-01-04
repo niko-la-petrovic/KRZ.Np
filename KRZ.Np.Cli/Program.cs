@@ -204,6 +204,7 @@ namespace KRZ.Np.Cli
                 try
                 {
                     userCert = new X509Certificate2(userCertPath, certPassword);
+                    // TODO validate root ca
                 }
                 catch (Exception ex)
                 {
