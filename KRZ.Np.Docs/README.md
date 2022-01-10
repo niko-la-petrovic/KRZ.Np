@@ -3,7 +3,7 @@
 ## Apply steganography
 
 ``` ps
-.\KRZ.Np.Cli.exe -e -s G:\downloads\kripto_images_bmp\1.bmp -r -i "teaieaf"
+.\KRZ.Np.Cli.exe -e -s G:\downloads\kripto_images_bmp\1.bmp -i "teaieaf"
 ```
 
 ## Decode steganography
@@ -41,7 +41,7 @@ $modifiedImages = gci $imageDir | Where-Object { $_.Name.Contains("modified") }
 $modifiedImages | % { .\KRZ.Np.Cli.exe -r -s ($_.FullName) }
 ```
 
-## Root CA
+## Root CA [--gen-root-ca]
 
 ```bash
 BA
@@ -56,7 +56,7 @@ Root CA
 root-ca
 ```
 
-## CA1
+## CA1 [--gen-ca -s "root-ca.pfx" -p "pass"]
 
 ```
 BA

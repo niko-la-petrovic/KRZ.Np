@@ -124,180 +124,231 @@ namespace KRZ.Np.Cli
 
             var quizItems = LoadQuizItems();
 
-            var registerCaConfig = cliConfig.CaCerts[random.Next(cliConfig.CaCerts.Count)];
-            var caCerts = cliConfig.CaCerts.Select(cc => new X509Certificate2(cc.FilePath, cc.Password));
-            using var regsiterCaCert = new X509Certificate2(registerCaConfig.FilePath, registerCaConfig.Password,
-                X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet);
+            CaCert registerCaConfig;
+            IEnumerable<X509Certificate2> caCerts = cliConfig.CaCerts.Select(cc =>
+                new X509Certificate2(
+                    cc.FilePath,
+                    cc.Password,
+                    X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet | X509KeyStorageFlags.Exportable));
             X509Certificate2 userIssuerCa = null;
             CaCert userIssuerCaConfig = null;
 
             var db = GetDb();
 
             bool finished = false;
+            bool loginFinished = false;
             User user = null;
             using var sha = SHA256.Create();
             do
             {
-                Console.WriteLine();
-                Console.Write("Would you like to register (y/n)?");
-                string register = Console.ReadLine();
-                bool shouldRegister = register == "y";
-                if (!shouldRegister)
-                    Console.WriteLine("Login");
-                else
-                    Console.WriteLine($"Registration");
-
-                var creds = GetCredentials();
-                if (creds.Password.Length < 3)
+                do
                 {
-                    Console.WriteLine("Password is too short");
-                    continue;
-                }
+                    registerCaConfig = cliConfig.CaCerts[random.Next(cliConfig.CaCerts.Count)];
+                    using var regsiterCaCert = new X509Certificate2(registerCaConfig.FilePath, registerCaConfig.Password,
+                    X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet | X509KeyStorageFlags.Exportable);
 
-                user = db.Users.FirstOrDefault(dc => dc.Username == creds.Username);
-                if (shouldRegister)
-                {
-                    if (user is not null)
+                    Console.WriteLine();
+                    Console.Write("Would you like to register (y/n)?");
+                    string register = Console.ReadLine();
+                    bool shouldRegister = register == "y";
+                    if (!shouldRegister)
+                        Console.WriteLine("Login");
+                    else
+                        Console.WriteLine($"Registration");
+
+                    var creds = GetCredentials();
+                    if (creds.Password.Length < 3)
                     {
-                        Console.WriteLine("Username is already in use");
+                        Console.WriteLine("Password is too short");
                         continue;
                     }
 
-                    using var _ = GenCert(parentCert: regsiterCaCert, isUser: true, ski: creds.Username, caCertConfig: registerCaConfig);
-
-                    var saltBytes = Salt.GetSalt();
-                    var saltBase64 = Convert.ToBase64String(saltBytes);
-                    var hashedPassword = sha.ComputeHash(Encoding.Default.GetBytes(creds.Password));
-                    using var hashStream = new MemoryStream();
-                    hashStream.Write(hashedPassword);
-                    hashStream.Write(saltBytes);
-                    var passwordHash = sha.ComputeHash(hashStream.ToArray());
-                    var passwordHashBase64 = Convert.ToBase64String(passwordHash);
-
-                    user = new User
+                    user = db.Users.FirstOrDefault(dc => dc.Username == creds.Username);
+                    if (shouldRegister)
                     {
-                        Username = creds.Username,
-                        PlayCount = 0,
-                        Salt = saltBase64,
-                        PasswordHash = passwordHashBase64
-                    };
+                        if (user is not null)
+                        {
+                            Console.WriteLine("Username is already in use");
+                            continue;
+                        }
 
-                    db.Users.Add(user);
+                        using var _ = GenCert(parentCert: regsiterCaCert, isUser: true, ski: creds.Username, caCertConfig: registerCaConfig);
+
+                        var saltBytes = Salt.GetSalt();
+                        var saltBase64 = Convert.ToBase64String(saltBytes);
+                        var hashedPassword = sha.ComputeHash(Encoding.Default.GetBytes(creds.Password));
+                        using var hashStream = new MemoryStream();
+                        hashStream.Write(hashedPassword);
+                        hashStream.Write(saltBytes);
+                        var passwordHash = sha.ComputeHash(hashStream.ToArray());
+                        var passwordHashBase64 = Convert.ToBase64String(passwordHash);
+
+                        user = new User
+                        {
+                            Username = creds.Username,
+                            PlayCount = 0,
+                            Salt = saltBase64,
+                            PasswordHash = passwordHashBase64
+                        };
+
+                        db.Users.Add(user);
+                        SaveDb(db);
+
+                        continue;
+                    }
+
+                    if (user is null)
+                    {
+                        Console.WriteLine("Invalid credentials");
+                        continue;
+                    }
+                    bool validCreds = CheckPassword(sha, creds, user);
+                    if (!validCreds)
+                    {
+                        Console.WriteLine("Invalid credentials");
+                        continue;
+                    }
+
+                    Console.Write("Specify your digital certificate:");
+                    string userCertPath = Console.ReadLine();
+                    GetSecureText(out var certPassword, "Enter your certificate password:");
+                    Console.WriteLine();
+                    try
+                    {
+                        userCert = new X509Certificate2(userCertPath, certPassword);
+                        var issuingCa = caCerts.FirstOrDefault(c => c.Subject == userCert.Issuer);
+                        if (issuingCa is null)
+                        {
+                            Console.WriteLine("The CA issuer of your certificate is invalid");
+                            continue;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine(ex.Message);
+                        continue;
+                    }
+
+                    string crlFilePath = null;
+                    try
+                    {
+                        var certChain = new X509Chain();
+                        certChain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+                        certChain.ChainPolicy.RevocationFlag = X509RevocationFlag.EndCertificateOnly;
+                        certChain.ChainPolicy.VerificationFlags =
+                            X509VerificationFlags.IgnoreEndRevocationUnknown |
+                            X509VerificationFlags.IgnoreCtlSignerRevocationUnknown |
+                            X509VerificationFlags.IgnoreCertificateAuthorityRevocationUnknown |
+                            X509VerificationFlags.IgnoreRootRevocationUnknown |
+                            X509VerificationFlags.IgnoreCtlSignerRevocationUnknown;
+                        certChain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+                        certChain.ChainPolicy.CustomTrustStore.Add(GetRootCa());
+                        foreach (var cert in caCerts)
+                        {
+                            certChain.ChainPolicy.CustomTrustStore.Add(cert);
+                        }
+                        certChain.Build(userCert);
+
+                        var chainedUserCert = certChain.ChainElements.Cast<X509ChainElement>().FirstOrDefault();
+                        var status = certChain.ChainStatus;
+                        if (status.Any())
+                        {
+                            Console.WriteLine($"Invalid X509 chain: {status.First().StatusInformation}");
+                            continue;
+                        }
+
+                        var chainElements = certChain.ChainElements.Cast<X509ChainElement>().ToList();
+                        var certIssuer = chainElements.Skip(1).FirstOrDefault();
+                        var certIssuerThumbprint = certIssuer?.Certificate?.Thumbprint;
+
+                        var ext = userCert.Extensions.Cast<X509Extension>().FirstOrDefault(ext => ext?.Oid.Value == crlDpOid);
+                        var rawData = ext.RawData;
+                        var crlDistPoint = CrlDistPoint.GetInstance(rawData);
+                        var distPoint = crlDistPoint.GetDistributionPoints().FirstOrDefault();
+                        var distPointName = distPoint.DistributionPointName.Name;
+                        var names = GeneralNames.GetInstance(distPointName).GetNames().FirstOrDefault();
+                        var name = names.Name;
+
+                        crlFilePath = name.ToString();
+
+                        userIssuerCa = caCerts.FirstOrDefault(c => c.Subject == userCert.Issuer);
+                        if (certIssuerThumbprint is null || certIssuerThumbprint != userIssuerCa?.Thumbprint)
+                        {
+                            Console.WriteLine("Your CA is not trusted");
+                            continue;
+                        }
+                        userIssuerCaConfig = cliConfig.CaCerts.FirstOrDefault(ca => ca.CrlDPPath == crlFilePath);
+                        if (userIssuerCa is null || userIssuerCaConfig is null)
+                        {
+                            Console.WriteLine("Your certificate CRL DP is not trusted");
+                            continue;
+                        }
+
+                        crl = GetCrl(userIssuerCa, userIssuerCaConfig.CrlDPPath);
+                        var revokedCert = crl.GetRevokedCertificate(new Org.BouncyCastle.Math.BigInteger(userCert.SerialNumber));
+                        if (revokedCert is not null)
+                        {
+                            Console.WriteLine("Your certificate has been revoked");
+                            continue;
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        Console.WriteLine("Failed to read CRL DP");
+                        continue;
+                    }
+
+                    var subjectKey = userCert.Extensions.Cast<X509Extension>().FirstOrDefault(ext => ext?.Oid.Value == X509AuthorityKeyIdentifierExtension.SubjectKeyIdentifierOid.Value) as X509SubjectKeyIdentifierExtension;
+                    // TODO make into method, replace other uses
+                    var userSki = Convert.ToHexString(Encoding.Default.GetBytes(creds.Username));
+                    if (subjectKey.SubjectKeyIdentifier != userSki)
+                    {
+                        Console.WriteLine("You do not own this certificate");
+                        continue;
+                    }
+
+                    Console.WriteLine("Successful login");
+                    loginFinished = true;
+
+
+                    int correctAnswers = PlayQuiz(quizItems);
+                    int score = (int)(((double)correctAnswers) / toAskCount * 100);
+                    var currentDateTime = DateTime.Now;
+
+                    user.PlayCount++;
                     SaveDb(db);
 
-                    continue;
-                }
-
-                if (user is null)
-                {
-                    Console.WriteLine("Invalid credentials");
-                    continue;
-                }
-                bool validCreds = CheckPassword(sha, creds, user);
-                if (!validCreds)
-                {
-                    Console.WriteLine("Invalid credentials");
-                    continue;
-                }
-
-                Console.Write("Specify your digital certificate:");
-                string userCertPath = Console.ReadLine();
-                GetSecureText(out var certPassword, "Enter your certificate password:");
-                Console.WriteLine();
-                try
-                {
-                    userCert = new X509Certificate2(userCertPath, certPassword);
-                    var issuingCa = caCerts.FirstOrDefault(c => c.Subject == userCert.Issuer);
-                    if (issuingCa is null)
+                    if (user.PlayCount == 3)
                     {
-                        Console.WriteLine("The CA issuer of your certificate is invalid");
-                        continue;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine(ex.Message);
-                    continue;
-                }
-
-                string crlFilePath = null;
-                try
-                {
-                    var ext = userCert.Extensions.Cast<X509Extension>().FirstOrDefault(ext => ext?.Oid.Value == crlDpOid);
-                    var rawData = ext.RawData;
-                    var crlDistPoint = CrlDistPoint.GetInstance(rawData);
-                    var distPoint = crlDistPoint.GetDistributionPoints().FirstOrDefault();
-                    var distPointName = distPoint.DistributionPointName.Name;
-                    var names = GeneralNames.GetInstance(distPointName).GetNames().FirstOrDefault();
-                    var name = names.Name;
-
-                    crlFilePath = name.ToString();
-
-                    userIssuerCa = caCerts.FirstOrDefault(c => c.Subject == userCert.Issuer);
-                    userIssuerCaConfig = cliConfig.CaCerts.FirstOrDefault(ca => ca.CrlDPPath == crlFilePath);
-                    if (userIssuerCa is null || userIssuerCaConfig is null)
-                    {
-                        Console.WriteLine("Your certificate CRL DP is not trusted");
-                        continue;
+                        var modifiedCrl = GetCrl(userIssuerCa, userIssuerCaConfig.CrlDPPath, modify: true, toAdd: userCert);
+                        Console.WriteLine("You have played your last game with this certificate");
                     }
 
-                    crl = GetCrl(userIssuerCaConfig.CrlDPPath);
-                    var revokedCert = crl.GetRevokedCertificate(new Org.BouncyCastle.Math.BigInteger(userCert.SerialNumber));
-                    if (revokedCert is not null)
+                    var gameScores = GetGameScores();
+
+                    Console.WriteLine();
+                    Console.WriteLine($"[{currentDateTime}]: Your score is {score}/100");
+                    Console.WriteLine();
+                    var playScore = new PlayScore { DateTime = currentDateTime, Score = score, Username = user.Username };
+
+                    gameScores.PlayScores.Add(playScore);
+                    SaveGameScores(gameScores);
+
+                    Console.Write("Check other users' scores (y/n)?");
+                    var checkScore = Console.ReadLine();
+                    if (checkScore == "y")
                     {
-                        Console.WriteLine("Your certificate has been revoked");
-                        continue;
+                        Console.WriteLine($"{Environment.NewLine}Game scores{Environment.NewLine}");
+                        Console.WriteLine(gameScores);
                     }
-                }
-                catch (Exception)
-                {
-                    Console.WriteLine("Failed to read CRL DP");
-                    continue;
-                }
 
-                var subjectKey = userCert.Extensions.Cast<X509Extension>().FirstOrDefault(ext => ext?.Oid.Value == X509AuthorityKeyIdentifierExtension.SubjectKeyIdentifierOid.Value) as X509SubjectKeyIdentifierExtension;
-                // TODO make into method, replace other uses
-                var userSki = Convert.ToHexString(Encoding.Default.GetBytes(creds.Username));
-                if (subjectKey.SubjectKeyIdentifier != userSki)
-                {
-                    Console.WriteLine("You do not own this certificate");
-                    continue;
-                }
-
-                Console.WriteLine("Successful login");
-                finished = true;
+                    Console.WriteLine();
+                    Console.Write("Use app again (y/n)?");
+                    var useAgain = Console.ReadLine();
+                    if (useAgain != "y")
+                        finished = true;
+                } while (!loginFinished);
             } while (!finished);
-
-            int correctAnswers = PlayQuiz(quizItems);
-            int score = (int)(((double)correctAnswers) / toAskCount * 100);
-            var currentDateTime = DateTime.Now;
-
-            user.PlayCount++;
-            SaveDb(db);
-
-            if (user.PlayCount == 3)
-            {
-                var modifiedCrl = GetCrl(userIssuerCaConfig.CrlDPPath, modify: true, toAdd: userCert);
-                Console.WriteLine("You have played your last game with this certificate");
-            }
-
-            var gameScores = GetGameScores();
-
-            Console.WriteLine();
-            Console.WriteLine($"[{currentDateTime}]: Your score is {score}/100");
-            Console.WriteLine();
-            var playScore = new PlayScore { DateTime = currentDateTime, Score = score, Username = user.Username };
-
-            gameScores.PlayScores.Add(playScore);
-            SaveGameScores(gameScores);
-
-            Console.Write("Check other users' scores (y/n)?");
-            var checkScore = Console.ReadLine();
-            if (checkScore == "y")
-            {
-                Console.WriteLine($"{Environment.NewLine}Game scores{Environment.NewLine}");
-                Console.WriteLine(gameScores);
-            }
 
             Console.WriteLine();
             Console.WriteLine("Press anything to continue");
@@ -610,7 +661,7 @@ namespace KRZ.Np.Cli
             return certificate;
         }
 
-        private static X509Crl GetCrl(string crlDPPath, bool modify = false, X509Certificate2 toAdd = null)
+        private static X509Crl GetCrl(X509Certificate2 issuer, string crlDPPath, bool modify = false, X509Certificate2 toAdd = null)
         {
             X509Crl existingCrl = null;
             if (File.Exists(crlDPPath))
@@ -622,9 +673,8 @@ namespace KRZ.Np.Cli
             if (!modify && existingCrl is not null)
                 return existingCrl;
 
-            using var rootCa = GetRootCa(exportable: true);
             var certParser = new X509CertificateParser();
-            var bouncyCert = certParser.ReadCertificate(rootCa.RawData);
+            var bouncyCert = certParser.ReadCertificate((byte[])issuer.RawData);
 
             var crlGen = new X509V2CrlGenerator();
             crlGen.SetIssuerDN(PrincipalUtilities.GetSubjectX509Principal(bouncyCert));
@@ -648,7 +698,7 @@ namespace KRZ.Np.Cli
             RsaPrivateCrtKeyParameters privKeyParams;
             {
                 // TODO remove. This is to bypass windows limitations of not exporting the private key in plaintext.
-                using var loadedRsa = rootCa.GetRSAPrivateKey();
+                using var loadedRsa = issuer.GetRSAPrivateKey();
                 var exported = loadedRsa.ExportEncryptedPkcs8PrivateKey("temp", new PbeParameters(PbeEncryptionAlgorithm.Aes256Cbc, HashAlgorithmName.SHA256, 1));
                 RSA temp = RSA.Create();
                 temp.ImportEncryptedPkcs8PrivateKey("temp", exported, out _);
