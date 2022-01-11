@@ -100,6 +100,8 @@ namespace KRZ.Np.Cli
             });
         }
 
+        #region CLI Options
+
         private static void ProcessCa(Options o)
         {
             using var rootCaCert = new X509Certificate2(o.SourceFilePath, o.Password,
@@ -359,6 +361,37 @@ namespace KRZ.Np.Cli
             userCert?.Dispose();
         }
 
+        private static void ProcessQuestions(Options o)
+        {
+            var srcFilePath = o.SourceFilePath;
+            string json = File.ReadAllText(srcFilePath);
+            JsonSerializerOptions options = QuestionsJsonSerializerOptions();
+            var result = JsonSerializer.Deserialize<List<QuizItem>>(json, options);
+            Console.WriteLine(JsonSerializer.Serialize(result));
+        }
+
+        private static void ProcessSteganographyArguments(Options options)
+        {
+            var input = options.Input;
+            var filePath = options.SourceFilePath;
+
+            if (options.ShouldRead)
+            {
+                var decoded = Steganography.DecodeBmp(filePath);
+                Console.WriteLine(decoded);
+            }
+            else
+            {
+                var toEncode = Encoding.Default.GetBytes(input);
+                var destinationPath = Steganography.EncodeBmp(filePath, toEncode);
+                Console.WriteLine(input);
+            }
+        }
+
+        #endregion
+
+        #region Quiz
+
         private static int PlayQuiz(List<QuizItem> quizItems)
         {
             int correctAnswers = 0;
@@ -399,28 +432,9 @@ namespace KRZ.Np.Cli
             return quizItems;
         }
 
-        private static X509Certificate2 GetRootCa(bool exportable = false)
-        {
-            var storageFlags = X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet;
-            if (exportable)
-                storageFlags |= X509KeyStorageFlags.Exportable;
+        #endregion
 
-            return new X509Certificate2(cliConfig.RootCa.FilePath, cliConfig.RootCa.Password, storageFlags);
-        }
-
-        private static bool CheckPassword(SHA256 sha, Credentials creds, User user)
-        {
-            var hashedPassword = sha.ComputeHash(Encoding.Default.GetBytes(creds.Password));
-            using var hashStream = new MemoryStream();
-            var saltBytes = Convert.FromBase64String(user.Salt);
-            hashStream.Write(hashedPassword);
-            hashStream.Write(saltBytes);
-            var passwordHash = sha.ComputeHash(hashStream.ToArray());
-            var passwordHashBase64 = Convert.ToBase64String(passwordHash);
-
-            bool validCreds = passwordHashBase64 == user.PasswordHash;
-            return validCreds;
-        }
+        #region Game Scores
 
         private static GameScores GetGameScores()
         {
@@ -451,44 +465,9 @@ namespace KRZ.Np.Cli
             CryptoWriteJson(gameScores, cliConfig.GameScoreConfig.DbPasswordFile, cliConfig.GameScoreConfig.DbFile);
         }
 
-        private static Db GetDb()
-        {
-            using var rootCa = GetRootCa();
-            var db = GetDb(rootCa, cliConfig.DbConfig.DbPasswordFile, cliConfig.DbConfig.DbFile);
-            return db;
-        }
+        #endregion
 
-        private static Db GetDb(X509Certificate2 rootCa, string passwordFilePath, string dataFilePath)
-        {
-            Db db;
-            if (!File.Exists(dataFilePath))
-            {
-                db = new Db { Users = new List<User>() };
-                SaveDb(db);
-            }
-            else
-            {
-                var json = CryptoReadString(rootCa, passwordFilePath, dataFilePath);
-                db = JsonSerializer.Deserialize<Db>(json);
-            }
-
-            return db;
-        }
-
-        private static string CryptoReadString(X509Certificate2 rootCa, string passwordFilePath, string dataFilePath)
-        {
-            var pfsBytes = File.ReadAllBytes(passwordFilePath);
-            using var rsa = rootCa.GetRSAPrivateKey();
-            var decryptedRsa = rsa.Decrypt(pfsBytes, RSAEncryptionPadding.Pkcs1);
-            using var reader = new BinaryReader(new MemoryStream(decryptedRsa));
-            var iv = reader.ReadBytes(16);
-            var keySize = reader.ReadInt32() / 8;
-            var key = reader.ReadBytes(keySize);
-
-            var dBytes = File.ReadAllBytes(dataFilePath);
-            var readString = AesUtil.DecryptAes(dBytes, key, iv);
-            return readString;
-        }
+        #region Encryption and decryption
 
         private static void CryptoWriteJson(
             object obj, string passwordFilePath, string dataFilePath)
@@ -523,9 +502,46 @@ namespace KRZ.Np.Cli
             dfs.Write(encryptedBytes);
         }
 
-        private static void SaveDb(Db db)
+        private static string CryptoReadString(X509Certificate2 rootCa, string passwordFilePath, string dataFilePath)
         {
-            CryptoWriteJson(db, cliConfig.DbConfig.DbPasswordFile, cliConfig.DbConfig.DbFile);
+            var pfsBytes = File.ReadAllBytes(passwordFilePath);
+            using var rsa = rootCa.GetRSAPrivateKey();
+            var decryptedRsa = rsa.Decrypt(pfsBytes, RSAEncryptionPadding.Pkcs1);
+            using var reader = new BinaryReader(new MemoryStream(decryptedRsa));
+            var iv = reader.ReadBytes(16);
+            var keySize = reader.ReadInt32() / 8;
+            var key = reader.ReadBytes(keySize);
+
+            var dBytes = File.ReadAllBytes(dataFilePath);
+            var readString = AesUtil.DecryptAes(dBytes, key, iv);
+            return readString;
+        }
+
+        #endregion
+
+        #region Certs
+
+        private static X509Certificate2 GetRootCa(bool exportable = false)
+        {
+            var storageFlags = X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet;
+            if (exportable)
+                storageFlags |= X509KeyStorageFlags.Exportable;
+
+            return new X509Certificate2(cliConfig.RootCa.FilePath, cliConfig.RootCa.Password, storageFlags);
+        }
+
+        private static bool CheckPassword(SHA256 sha, Credentials creds, User user)
+        {
+            var hashedPassword = sha.ComputeHash(Encoding.Default.GetBytes(creds.Password));
+            using var hashStream = new MemoryStream();
+            var saltBytes = Convert.FromBase64String(user.Salt);
+            hashStream.Write(hashedPassword);
+            hashStream.Write(saltBytes);
+            var passwordHash = sha.ComputeHash(hashStream.ToArray());
+            var passwordHashBase64 = Convert.ToBase64String(passwordHash);
+
+            bool validCreds = passwordHashBase64 == user.PasswordHash;
+            return validCreds;
         }
 
         private static X509Certificate2 GenCert(
@@ -727,6 +743,43 @@ namespace KRZ.Np.Cli
             Console.WriteLine($"You may find your certificate at '{Path.GetFullPath(outputFilePath)}'");
         }
 
+        #endregion
+
+        #region User DB
+
+        private static Db GetDb()
+        {
+            using var rootCa = GetRootCa();
+            var db = GetDb(rootCa, cliConfig.DbConfig.DbPasswordFile, cliConfig.DbConfig.DbFile);
+            return db;
+        }
+
+        private static Db GetDb(X509Certificate2 rootCa, string passwordFilePath, string dataFilePath)
+        {
+            Db db;
+            if (!File.Exists(dataFilePath))
+            {
+                db = new Db { Users = new List<User>() };
+                SaveDb(db);
+            }
+            else
+            {
+                var json = CryptoReadString(rootCa, passwordFilePath, dataFilePath);
+                db = JsonSerializer.Deserialize<Db>(json);
+            }
+
+            return db;
+        }
+
+        private static void SaveDb(Db db)
+        {
+            CryptoWriteJson(db, cliConfig.DbConfig.DbPasswordFile, cliConfig.DbConfig.DbFile);
+        }
+
+        #endregion
+
+        #region Utility
+
         private static Credentials GetCredentials()
         {
             Console.WriteLine();
@@ -770,38 +823,13 @@ namespace KRZ.Np.Cli
             Console.WriteLine();
         }
 
-        private static void ProcessQuestions(Options o)
-        {
-            var srcFilePath = o.SourceFilePath;
-            string json = File.ReadAllText(srcFilePath);
-            JsonSerializerOptions options = QuestionsJsonSerializerOptions();
-            var result = JsonSerializer.Deserialize<List<QuizItem>>(json, options);
-            Console.WriteLine(JsonSerializer.Serialize(result));
-        }
-
         private static JsonSerializerOptions QuestionsJsonSerializerOptions()
         {
             var options = new JsonSerializerOptions { };
             options.AddDiscriminatorConverterForHierarchy<QuizItem>(QuizItemDiscriminator.DiscriminatorName);
             return options;
-        }
+        } 
+        #endregion
 
-        private static void ProcessSteganographyArguments(Options options)
-        {
-            var input = options.Input;
-            var filePath = options.SourceFilePath;
-
-            if (options.ShouldRead)
-            {
-                var decoded = Steganography.DecodeBmp(filePath);
-                Console.WriteLine(decoded);
-            }
-            else
-            {
-                var toEncode = Encoding.Default.GetBytes(input);
-                var destinationPath = Steganography.EncodeBmp(filePath, toEncode);
-                Console.WriteLine(input);
-            }
-        }
     }
 }
